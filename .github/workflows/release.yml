@@ -27,13 +27,16 @@ jobs:
           pip install pyinstaller pillow
 
       - name: Build EXE (no console)
-        run: |
-          pyinstaller --onefile --windowed ^
-            --icon windows-updater.ico ^
-            App-Updater.py
+        run: pyinstaller --noconfirm --onefile --windowed --icon "windows-updater.ico" App-Updater.py
+        # If your entry is .pyw, change to App-Updater.pyw
 
-      - name: Rename EXE with tag
-        run: ren dist\App-Updater.exe Windows-App-Updater-${{ github.ref_name }}.exe
+      - name: Verify and rename EXE with tag
+        run: |
+          if (!(Test-Path "dist\App-Updater.exe")) {
+            Write-Error "Build failed: dist\App-Updater.exe not found"
+          }
+          $tag = "${{ github.ref_name }}"
+          Rename-Item "dist\App-Updater.exe" "dist\Windows-App-Updater-$tag.exe"
 
       - name: Create GitHub Release and upload EXE
         uses: softprops/action-gh-release@v2
