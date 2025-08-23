@@ -16,6 +16,24 @@ APP_NAME_VERSION = "Windows App Updater v1.0"
 UNCHECKED = "☐"
 CHECKED = "☑"
 
+# ====================== PyInstaller resource helper ======================
+def resource_path(relative_path: str) -> str:
+    """
+    Return absolute path to a bundled resource (works in dev and PyInstaller).
+    """
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)  # type: ignore[attr-defined]
+    return os.path.join(os.path.abspath("."), relative_path)
+
+# ====================== Hide child console windows ======================
+CREATE_NO_WINDOW = 0x08000000
+
+def _hidden_startupinfo() -> subprocess.STARTUPINFO:  # type: ignore[name-defined]
+    si = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+    si.wShowWindow = 0  # SW_HIDE
+    return si
+
 # ====================== Elevation helpers ======================
 def is_admin() -> bool:
     try:
@@ -75,22 +93,16 @@ class ToolTip:
 # ====================== Icon & sound helpers ======================
 def set_app_icon(root: tk.Tk) -> Optional[str]:
     """
-    Set the window icon from windows-updater.ico / app.ico if available.
-    Returns the path used (or None) so we can apply the same icon to child windows.
+    Set the window icon from embedded/packaged 'windows-updater.ico'.
+    Returns the path used (or None).
     """
-    here = os.path.dirname(os.path.abspath(sys.argv[0]))
-    candidates = [
-        os.path.join(here, "windows-updater.ico"),
-        os.path.join(here, "app.ico"),
-        os.path.join(here, "assets", "windows-updater.ico"),
-    ]
-    for ico in candidates:
-        if os.path.exists(ico):
-            try:
-                root.iconbitmap(ico)
-                return ico
-            except Exception:
-                pass
+    ico = resource_path("windows-updater.ico")
+    if os.path.exists(ico):
+        try:
+            root.iconbitmap(ico)
+            return ico
+        except Exception:
+            pass
     return None  # keep default if load fails
 
 def apply_icon_to_toplevel(tlv: tk.Toplevel, icon_path: Optional[str]):
@@ -103,54 +115,48 @@ def apply_icon_to_toplevel(tlv: tk.Toplevel, icon_path: Optional[str]):
 
 def load_flag_image() -> Optional[tk.PhotoImage]:
     """
-    Load 'kuwait.png' (preferred) or convert 'kuwait.ico' in-memory using Pillow if available.
-    Returns a PhotoImage or None.
+    Load embedded 'kuwait.png' if present; fall back to kuwait.ico (via Pillow) if shipped.
     """
-    here = os.path.dirname(os.path.abspath(sys.argv[0]))
-    pngs = [os.path.join(here, "kuwait.png"), os.path.join(here, "assets", "kuwait.png")]
-    icos = [os.path.join(here, "kuwait.ico"), os.path.join(here, "assets", "kuwait.ico")]
+    # Prefer PNG (always works with Tk)
+    png = resource_path("kuwait.png")
+    if os.path.exists(png):
+        try:
+            return tk.PhotoImage(file=png)
+        except Exception:
+            pass
 
-    for p in pngs:
-        if os.path.exists(p):
-            try:
-                return tk.PhotoImage(file=p)
-            except Exception:
-                pass
-
-    for ico in icos:
-        if os.path.exists(ico):
-            try:
-                from PIL import Image
-                im = Image.open(ico)
-                if hasattr(im, "n_frames"):
-                    im.seek(im.n_frames - 1)
-                im = im.convert("RGBA")
-                max_h = 18
-                if im.height > max_h:
-                    ratio = max_h / float(im.height)
-                    im = im.resize((max(16, int(im.width * ratio)), max_h), Image.LANCZOS)
-                bio = BytesIO()
-                im.save(bio, format="PNG")
-                bio.seek(0)
-                return tk.PhotoImage(data=bio.read())
-            except Exception:
-                return None
+    # Optional fallback: convert ICO -> PNG dynamically if pillow available
+    ico = resource_path("kuwait.ico")
+    if os.path.exists(ico):
+        try:
+            from PIL import Image
+            im = Image.open(ico)
+            if hasattr(im, "n_frames"):
+                im.seek(im.n_frames - 1)
+            im = im.convert("RGBA")
+            max_h = 18
+            if im.height > max_h:
+                ratio = max_h / float(im.height)
+                im = im.resize((max(16, int(im.width * ratio)), max_h), Image.LANCZOS)
+            bio = BytesIO()
+            im.save(bio, format="PNG")
+            bio.seek(0)
+            return tk.PhotoImage(data=bio.read())
+        except Exception:
+            return None
     return None
 
 def play_success_sound():
-    """Play success jingle. If 'success.wav' exists (or assets/success.wav), play it; else use system chime."""
-    here = os.path.dirname(os.path.abspath(sys.argv[0]))
-    candidates = [
-        os.path.join(here, "success.wav"),
-        os.path.join(here, "assets", "success.wav"),
-    ]
-    for wav in candidates:
-        if os.path.exists(wav):
-            try:
-                winsound.PlaySound(wav, winsound.SND_FILENAME | winsound.SND_ASYNC)
-                return
-            except Exception:
-                break
+    """
+    Play embedded 'success.wav' if present; otherwise play a system chime.
+    """
+    wav = resource_path("success.wav")
+    if os.path.exists(wav):
+        try:
+            winsound.PlaySound(wav, winsound.SND_FILENAME | winsound.SND_ASYNC)
+            return
+        except Exception:
+            pass
     try:
         winsound.MessageBeep(winsound.MB_ICONASTERISK)
     except Exception:
@@ -169,6 +175,8 @@ def run(cmd):
         encoding="utf-8",
         errors="replace",
         env=env,
+        startupinfo=_hidden_startupinfo(),
+        creationflags=CREATE_NO_WINDOW,
     )
     return p.returncode, p.stdout.strip(), p.stderr.strip()
 
@@ -488,7 +496,6 @@ class WingetUpdaterUI:
     def clear_tree(self):
         for i in self.tree.get_children():
             self.tree.delete(i)
-        # no external item map; we read values directly from the tree
 
     # ====================== Check for updates (async with loading) ======================
     def check_for_updates_async(self):
@@ -562,7 +569,6 @@ class WingetUpdaterUI:
         self.progress_start("Updating", len(ids))
 
         def worker():
-            CREATE_NO_WINDOW = 0x08000000  # hide console window on Windows
             for pkg_id in ids:
                 if self.cancel_requested:
                     break
@@ -576,6 +582,7 @@ class WingetUpdaterUI:
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
+                        startupinfo=_hidden_startupinfo(),
                         creationflags=CREATE_NO_WINDOW
                     )
                     spinner_re = re.compile(r"^[\s\\/\|\-\r]+$")

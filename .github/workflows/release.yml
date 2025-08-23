@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write   # needed to create a release and upload assets
+  contents: write
 
 jobs:
   build-and-release:
@@ -15,6 +15,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify inputs
+        run: |
+          if (!(Test-Path "App-Updater.py"))    { Write-Error "App-Updater.py not found in repo root" }
+          if (!(Test-Path "windows-updater.ico")) { Write-Error "windows-updater.ico not found in repo root" }
+          if (!(Test-Path "kuwait.png"))        { Write-Error "kuwait.png not found in repo root" }
+          if (!(Test-Path "success.wav"))       { Write-Error "success.wav not found in repo root" }
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,20 +33,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller pillow
 
-      - name: Build EXE (no console)
-        run: pyinstaller --noconfirm --onefile --windowed --icon "windows-updater.ico" App-Updater.py
-        # 👆 If your entry file is App-Updater.pyw, change this line
-
-      - name: Rename EXE with tag
+      # Use pwsh line-continuations with backticks
+      - name: Build EXE (embed icon + resources)
         shell: pwsh
         run: |
-          $exe = "dist\App-Updater.exe"
-          if (!(Test-Path $exe)) {
-            Write-Error "Build failed: $exe not found"
-          }
+          pyinstaller --noconfirm --onefile --windowed `
+            --name "Windows-App-Updater" `
+            --icon "windows-updater.ico" `
+            --add-data "success.wav;." `
+            --add-data "kuwait.png;." `
+            --add-data "windows-updater.ico;." `
+            App-Updater.py
+
+      - name: Verify & rename with tag
+        shell: pwsh
+        run: |
+          $exe = "dist\Windows-App-Updater.exe"
+          if (!(Test-Path $exe)) { Write-Error "Build failed: $exe not found" }
           $tag = "${{ github.ref_name }}"
-          $newName = "Windows-App-Updater-$tag.exe"
-          Move-Item -Path $exe -Destination ("dist\" + $newName) -Force
+          Move-Item $exe ("dist\Windows-App-Updater-$tag.exe") -Force
 
       - name: Create GitHub Release and upload EXE
         uses: softprops/action-gh-release@v2
