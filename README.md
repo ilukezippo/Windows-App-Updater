@@ -1,22 +1,20 @@
-# Windows App Updater
+﻿# Windows App Updater
 
-GUI tool (Tkinter) to check and update installed apps via **winget**.
+GUI (Tkinter) to check and update installed apps via **winget**.
 
-## Features
-- Flat list with checkboxes (☐ / ☑), Select All / Select None
-- **Run as Admin** button (relaunches elevated for silent installs)
-- **Include unknown apps** toggle (`--include-unknown`)
-- **Loading screen** while scanning
-- **Cancel** during updates
-- **YIFY-style** single progress bar with counts
-- Live log with both vertical & horizontal scrollbars
-- App icon + Kuwait flag branding
-- Plays a success sound when all updates finish
+## Run
+- Double-click \App-Updater.pyw\ (no console), or:
+\\\powershell
+pythonw App-Updater.pyw
+\\\
 
-## Requirements
-- Windows 10/11 with **winget** (App Installer) available
-- Python 3.10+ (tested with 3.11/3.12/3.13)
-- Optional: `Pillow` if you want to load `kuwait.ico` without converting to PNG
+## Build EXE (optional)
+\\\powershell
+pyinstaller --onefile --windowed --icon=windows-updater.ico App-Updater.py
+\\\
 
-```bash
-pip install pillow
+## Notes
+- Turn on **Include unknown apps** to scan with \--include-unknown\.
+- Click **Run as Admin** for silent installs.
+- Plays a success sound after updates.
+- Made by **BoYaqoub** – ilukezippo@gmail.com
