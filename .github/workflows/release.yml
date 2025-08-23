@@ -30,13 +30,17 @@ jobs:
         run: pyinstaller --noconfirm --onefile --windowed --icon "windows-updater.ico" App-Updater.py
         # If your entry is .pyw, change to App-Updater.pyw
 
-      - name: Verify and rename EXE with tag
+      -       - name: Verify and rename EXE with tag
+        shell: pwsh
         run: |
-          if (!(Test-Path "dist\App-Updater.exe")) {
-            Write-Error "Build failed: dist\App-Updater.exe not found"
+          $exe = "dist\App-Updater.exe"
+          if (!(Test-Path $exe)) {
+            Write-Error "Build failed: $exe not found"
           }
           $tag = "${{ github.ref_name }}"
-          Rename-Item "dist\App-Updater.exe" "dist\Windows-App-Updater-$tag.exe"
+          $newName = "Windows-App-Updater-$tag.exe"
+          Rename-Item -LiteralPath $exe -NewName $newName -ErrorAction Stop
+
 
       - name: Create GitHub Release and upload EXE
         uses: softprops/action-gh-release@v2
