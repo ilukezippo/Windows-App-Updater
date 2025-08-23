@@ -1,0 +1,53 @@
+﻿name: Release Windows EXE
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write   # needed to create a release and upload assets
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller pillow
+
+      - name: Build EXE (no console)
+        run: pyinstaller --noconfirm --onefile --windowed --icon "windows-updater.ico" App-Updater.py
+        # 👆 If your entry file is App-Updater.pyw, change this line
+
+      - name: Rename EXE with tag
+        shell: pwsh
+        run: |
+          $exe = "dist\App-Updater.exe"
+          if (!(Test-Path $exe)) {
+            Write-Error "Build failed: $exe not found"
+          }
+          $tag = "${{ github.ref_name }}"
+          $newName = "Windows-App-Updater-$tag.exe"
+          Move-Item -Path $exe -Destination ("dist\" + $newName) -Force
+
+      - name: Create GitHub Release and upload EXE
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/Windows-App-Updater-${{ github.ref_name }}.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
