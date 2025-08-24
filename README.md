@@ -1,20 +1,16 @@
-﻿# Windows App Updater
+# Windows App Updater
 
-GUI (Tkinter) to check and update installed apps via **winget**.
+🚀 A simple tool to automatically update all your installed Windows apps using `winget`.  
+✔️ No more manual updates.  
+✔️ Silent mode with admin.  
+✔️ Progress bar and update logs.
 
-## Run
-- Double-click \App-Updater.pyw\ (no console), or:
-\\\powershell
-pythonw App-Updater.pyw
-\\\
+👉 [Download Latest EXE](https://github.com/ilukezippo/Windows-App-Updater/releases/latest)
 
-## Build EXE (optional)
-\\\powershell
-pyinstaller --onefile --windowed --icon=windows-updater.ico App-Updater.py
-\\\
+---
 
-## Notes
-- Turn on **Include unknown apps** to scan with \--include-unknown\.
-- Click **Run as Admin** for silent installs.
-- Plays a success sound after updates.
-- Made by **BoYaqoub** – ilukezippo@gmail.com
+# Features
+- One-click check for updates
+- Cancel or skip updates
+- Works with **winget** (Microsoft’s package manager)
+- Includes a success sound and custom icons
