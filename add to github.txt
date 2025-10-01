@@ -1,0 +1,8 @@
+git checkout -b release/v2.0
+
+git add App-Updater.py
+git commit -m "v2.0: added modern ui bigger buttons"
+
+git tag -a v2.0 -m "Windows App Updater v2.0"
+git push origin release/v2.0
+git push origin v2.0
