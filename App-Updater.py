@@ -1069,6 +1069,7 @@ class WingetUpdaterUI:
         self._remembered_close_choice = None
         self.checked_items = set()
         self.all_items = []  # master order (filter detaches rows from the tree)
+        self._unknown_items = set()  # rows whose installed version winget can't detect
         self.id_to_item = {}
         self.pkg_downloads = {}
         self._sort_state = (None, False)
@@ -1201,9 +1202,10 @@ class WingetUpdaterUI:
         self.include_unknown_var = tk.BooleanVar(value=bool(self.settings.get("include_unknown", False)))
         self.chk_unknown = ttk.Checkbutton(toggles, text="  Include apps with unknown version",
                                            variable=self.include_unknown_var, style="Switch.TCheckbutton",
-                                           command=self._save_prefs)
+                                           command=self._on_unknown_toggle)
         self.chk_unknown.pack(side="left")
-        ToolTip(self, self.chk_unknown, "Also list apps whose installed version winget can't detect.")
+        ToolTip(self, self.chk_unknown, "Show apps whose installed version winget can't detect.\n"
+                                        "Takes effect instantly — no need to scan again.")
         self.close_running_var = tk.BooleanVar(value=bool(self.settings.get("auto_close", False)))
         self.chk_close_running = ttk.Checkbutton(toggles, text="  Auto-close apps that block their update",
                                                  variable=self.close_running_var, style="Switch.TCheckbutton",
@@ -1596,13 +1598,28 @@ class WingetUpdaterUI:
             self.root.after_cancel(self._filter_job)
         self._filter_job = self.root.after(140, self.apply_filter)
 
+    def _is_hidden_unknown(self, it):
+        return it in self._unknown_items and not self.include_unknown_var.get()
+
+    def _on_unknown_toggle(self):
+        # Rows being hidden are unticked too, so nothing invisible gets updated.
+        for it in self._unknown_items:
+            if self._is_hidden_unknown(it) and it in self.checked_items:
+                self._set_checked(it, False)
+        if self._filter_job:
+            self.root.after_cancel(self._filter_job)
+        self.apply_filter()
+        self._save_prefs()
+
     def apply_filter(self):
         self._filter_job = None
         q = self._filter_text()
         for it in self.all_items:
             if not self.tree.exists(it):
                 continue
-            if not q:
+            if self._is_hidden_unknown(it):
+                show = False
+            elif not q:
                 show = True
             else:
                 v = self.tree.item(it, "values")
@@ -1612,7 +1629,26 @@ class WingetUpdaterUI:
             else:
                 self.tree.detach(it)
         self._restripe()
+        self._update_empty_state()
         self.update_counter()
+
+    def _update_empty_state(self):
+        if not self.all_items:
+            return  # populate_tree manages the "no scan yet / all set" messages
+        if self.tree.get_children(""):
+            self.empty_lbl.place_forget()
+            return
+        if self._eligible_count() == 0:
+            n = len(self._unknown_items)
+            msg = (f"{n} update{'s' if n != 1 else ''} hidden\n"
+                   "Turn on “Include apps with unknown version” to see them.")
+        else:
+            msg = "No apps match your filter."
+        self.empty_lbl.configure(text=msg)
+        self.empty_lbl.place(in_=self.tree, relx=0.5, rely=0.55, anchor="center")
+
+    def _eligible_count(self):
+        return sum(1 for it in self.all_items if not self._is_hidden_unknown(it))
 
     def _restripe(self):
         for i, it in enumerate(self.tree.get_children("")):
@@ -1721,10 +1757,10 @@ class WingetUpdaterUI:
         self.update_counter()
 
     def update_counter(self):  # noqa: C901
-        total = len(self.all_items)
+        total = self._eligible_count()
         shown = len(self.tree.get_children(""))
         sel = len(self.checked_items)
-        if total == 0:
+        if not self.all_items:
             self.counter_var.set("")
         else:
             txt = f"{total} found  ·  {sel} selected"
@@ -1748,6 +1784,7 @@ class WingetUpdaterUI:
         self.checked_items.clear()
         self.id_to_item.clear()
         self.all_items = []
+        self._unknown_items = set()
         self._hover_item = None
         self.tree.delete(*self.tree.get_children(""))
 
@@ -2383,14 +2420,14 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force
     def check_for_updates_async(self):
         if self.updating:
             return
-        include = bool(self.include_unknown_var.get())
         self.btn_check.state(["disabled"])
         self.show_loading("Checking for updates…")
         self.log("Checking for updates…")
 
         def worker():
             try:
-                pkgs = get_winget_upgrades(include_unknown=include)
+                # Always fetch unknown-version apps too; the switch just shows/hides them.
+                pkgs = get_winget_upgrades(include_unknown=True)
             except Exception as e:
                 self.post(self._check_failed, str(e))
                 return
@@ -2424,7 +2461,11 @@ Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force
                                   values=(p["name"], p["id"], p.get("current", ""), p.get("available", ""), ""))
             self.id_to_item[p["id"]] = it
             self.all_items.append(it)
-        self.log(f"Found {len(pkgs)} update{'s' if len(pkgs) != 1 else ''}.")
+            if (p.get("current") or "").strip().lower() in ("", "unknown"):
+                self._unknown_items.add(it)
+        n_unknown = len(self._unknown_items)
+        self.log(f"Found {len(pkgs)} update{'s' if len(pkgs) != 1 else ''}"
+                 + (f" ({n_unknown} with unknown version)." if n_unknown else "."))
         self.apply_filter()
         self._enable_select_buttons(True)
         self.update_counter()
