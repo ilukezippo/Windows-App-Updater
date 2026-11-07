@@ -821,7 +821,10 @@ class Theme:
 
         # Buttons (rounded image elements, one set per palette)
         r = px(7)
-        size = r * 2 + px(4)
+        # ttk *tiles* the middle of a 9-slice image. A tiny image meant hundreds of
+        # alpha-blended tiles per button on every redraw (= visible lag). A large
+        # image covers any button in a single tile.
+        bw, bh = px(420), px(64)
         variants = {
             "Accent": (p["accent"], p["accent_hover"], p["accent_press"], None, p["on_accent"]),
             "Secondary": (p["surface2"], p["surface3"], p["border"], p["border"], p["text"]),
@@ -837,16 +840,17 @@ class Theme:
                 imgs = {}
                 for state, col in (("normal", normal), ("active", hover), ("pressed", press)):
                     fill = _rgba(col) if col else (0, 0, 0, 0)
-                    imgs[state] = _to_photo(_rounded_image(size, size, r, fill,
-                                                           outline=_rgba(outline) if outline else None))
+                    imgs[state] = _to_photo(_rounded_image(bw, bh, r, fill,
+                                                           outline=_rgba(outline) if outline else None, ss=2))
                 dis_fill = _rgba(p["surface2"]) if normal else (0, 0, 0, 0)
-                imgs["disabled"] = _to_photo(_rounded_image(size, size, r, dis_fill,
-                                                            outline=_rgba(outline) if outline else None))
+                imgs["disabled"] = _to_photo(_rounded_image(bw, bh, r, dis_fill,
+                                                            outline=_rgba(outline) if outline else None, ss=2))
                 self.images[elem] = imgs
             if elem not in st.element_names():
                 st.element_create(elem, "image", imgs["normal"],
                                   ("disabled", imgs["disabled"]), ("pressed", imgs["pressed"]),
-                                  ("active", imgs["active"]), border=r + 1, sticky="nsew")
+                                  ("active", imgs["active"]), border=r + 1, sticky="nsew",
+                                  width=2 * r + px(4), height=2 * r + px(4))  # natural size stays small
             style_name = f"{v}.TButton"
             st.layout(style_name, [(elem, {"sticky": "nsew", "children": [
                 ("Button.padding", {"sticky": "nsew", "children": [
@@ -1089,6 +1093,7 @@ class WingetUpdaterUI:
         root.deiconify()
         set_titlebar_theme(root, self.theme.name == "dark", self.theme.p["bg"])
         root.after(1500, self.check_latest_app_version_async)
+        root.after(800, self._prewarm_other_theme)
 
     # ------------------------------------------------------------------
     #  Building the UI
@@ -1126,6 +1131,9 @@ class WingetUpdaterUI:
             style = str(b.cget("style"))
             color = p["on_accent"] if ("Accent" in style or "Danger" in style) else p["text"]
             img = self.theme.icon(name, color, 16)
+            if getattr(b, "_icon_img", "unset") is img:
+                continue  # unchanged -> no reconfigure, no redraw
+            b._icon_img = img
             if img:
                 b.configure(image=img, compound="left")
             else:
@@ -1177,7 +1185,7 @@ class WingetUpdaterUI:
                                    "Card.Accent.TButton", "refresh")
         self.btn_check.grid(row=0, column=0, sticky="w")
         self.btn_update = self._btn(bar, "Update selected", self.update_selected_async,
-                                    "Card.Secondary.TButton", "download")
+                                    "Card.Secondary.TButton", "download", width=20)
         self.btn_update.grid(row=0, column=1, sticky="w", padx=(px(8), 0))
         self.btn_skip = self._btn(bar, "Skip current", self.skip_current, "Card.Secondary.TButton", "skip",
                                   state="disabled")
@@ -1386,6 +1394,8 @@ class WingetUpdaterUI:
 
     def toggle_theme(self):
         new = "light" if self.theme.name == "dark" else "dark"
+        for b in self._icon_buttons:
+            b._icon_img = "unset"
         self.theme.apply(new)
         self._retheme_tk()
         self._style_tree_tags()
@@ -1397,6 +1407,18 @@ class WingetUpdaterUI:
             set_titlebar_theme(w, new == "dark", self.theme.p["bg"])
         self.settings["theme"] = new
         save_settings(self.settings)
+
+    def _prewarm_other_theme(self):
+        """Build the other palette's images/elements once, while idle."""
+        cur = self.theme.name
+        other = "light" if cur == "dark" else "dark"
+        try:
+            self.theme.apply(other)
+            for name in ICONS:
+                for col in (PALETTES[other]["text"], PALETTES[other]["on_accent"]):
+                    self.theme.icon(name, col, 16)
+        finally:
+            self.theme.apply(cur)
 
     def _save_prefs(self):
         self.settings["include_unknown"] = bool(self.include_unknown_var.get())
@@ -1710,9 +1732,17 @@ class WingetUpdaterUI:
                 txt += f"  ·  {shown} shown"
             self.counter_var.set(txt)
         if not self.updating:
-            self.btn_update.configure(style="Card.Accent.TButton" if sel else "Card.Secondary.TButton",
-                                      text=f"Update selected ({sel})" if sel else "Update selected")
-            self._apply_button_icons()
+            want_style = "Card.Accent.TButton" if sel else "Card.Secondary.TButton"
+            want_text = f"Update selected ({sel})" if sel else "Update selected"
+            changes = {}
+            if str(self.btn_update.cget("style")) != want_style:
+                changes["style"] = want_style
+            if str(self.btn_update.cget("text")) != want_text:
+                changes["text"] = want_text
+            if changes:
+                self.btn_update.configure(**changes)
+                if "style" in changes:  # icon colour depends on the style
+                    self._apply_button_icons()
 
     def clear_tree(self):
         self.checked_items.clear()
