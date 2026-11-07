@@ -13,4 +13,3 @@
 - One-click check for updates
 - Cancel or skip updates
 - Works with **winget** (Microsoft’s package manager)
-- Includes a success sound and custom icons
