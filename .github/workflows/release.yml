@@ -1,9 +1,14 @@
 ﻿name: Release Windows EXE
 
+# Push a tag like v2.5 to build Windows-App-Updater-v2.5.exe and publish it as a release.
+# The release notes come from that version's section in CHANGELOG.md, and the Download
+# buttons in README.md are pointed at the new .exe afterwards.
+
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,26 +19,29 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Verify inputs
         run: |
-          if (!(Test-Path "App-Updater.py"))    { Write-Error "App-Updater.py not found in repo root" }
+          if (!(Test-Path "App-Updater.py"))      { Write-Error "App-Updater.py not found in repo root" }
           if (!(Test-Path "windows-updater.ico")) { Write-Error "windows-updater.ico not found in repo root" }
-          if (!(Test-Path "kuwait.png"))        { Write-Error "kuwait.png not found in repo root" }
-          if (!(Test-Path "success.wav"))       { Write-Error "success.wav not found in repo root" }
+          if (!(Test-Path "kuwait.png"))          { Write-Error "kuwait.png not found in repo root" }
+          if (!(Test-Path "success.wav"))         { Write-Error "success.wav not found in repo root" }
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        env:
+          # Build PyInstaller's launcher from source: antivirus engines flag the shared stock launcher far more often.
+          PYINSTALLER_COMPILE_BOOTLOADER: "1"
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller pillow
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.txt
+          pip install --no-binary pyinstaller pyinstaller
 
-      # Use pwsh line-continuations with backticks
       - name: Build EXE (embed icon + resources)
         shell: pwsh
         run: |
@@ -53,13 +61,47 @@ jobs:
           $tag = "${{ github.ref_name }}"
           Move-Item $exe ("dist\Windows-App-Updater-$tag.exe") -Force
 
+      - name: Release notes (from CHANGELOG.md)
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          V="${TAG#v}"
+          {
+            echo "**Keep every installed app up to date, in one click.** A free, modern front end for Microsoft's winget."
+            echo
+            echo "**Download:** \`Windows-App-Updater-$TAG.exe\` below and run it. Nothing to install."
+            echo "The .exe is not code-signed yet, so Windows may warn: if Edge holds the download, choose *… → Keep → Show more → Keep anyway*; if SmartScreen warns when you run it, choose *More info → Run anyway*."
+            echo
+            echo "Requires Windows 10 or 11 with winget (App Installer)."
+            echo
+            echo "## What's new in $V"
+            awk -v head="## $V" 'index($0, head) == 1 {on = 1; next} /^## / {if (on) exit} on' CHANGELOG.md | sed 's/^### /#### /'
+          } > release_notes.md
+          cat release_notes.md
+
       - name: Create GitHub Release and upload EXE
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: false
-          generate_release_notes: true
+          make_latest: true
+          body_path: release_notes.md
           files: |
             dist/Windows-App-Updater-${{ github.ref_name }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point the Download buttons at this release
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main && git checkout -B main origin/main
+          sed -i -E -e "s#releases/download/v[0-9][^/\"]*/Windows-App-Updater-v[0-9][^/\")]*\.exe#releases/download/$TAG/Windows-App-Updater-$TAG.exe#g" \
+                    -e "s#Download Windows-App-Updater-v[0-9][0-9.]*\.exe#Download Windows-App-Updater-$TAG.exe#g" README.md
+          if git diff --quiet; then echo "buttons already point at $TAG"; exit 0; fi
+          git commit -am "Download buttons: Windows App Updater $TAG"
+          git push origin main
